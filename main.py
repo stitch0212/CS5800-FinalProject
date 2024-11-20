@@ -19,8 +19,8 @@ def main():
 
     # Define start and end nodes (replace with actual node IDs or coordinates)
     print("Defining start and end nodes...")
-    start_lat, start_lon = 49.2886, -123.1110
-    end_lat, end_lon = 49.2734, -123.1039
+    start_lat, start_lon = 49.2886292, -123.1384087
+    end_lat, end_lon = 49.2098464, -123.115616
 
 
     # Find the nearest nodes in the projected graph
@@ -34,8 +34,8 @@ def main():
     print("Running Greedy Algorithm...")
     greedy_path = greedy_route(G, start_node, end_node)
     print(f"Greedy Path: {greedy_path}")
-
     '''
+
     # Run DP (Dijkstra) Algorithm
     print("Running DP (Dijkstra's Algorithm)...")
     dp_path = dp_route(G, start_node, end_node)

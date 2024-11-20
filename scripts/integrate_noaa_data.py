@@ -1,10 +1,12 @@
+# Consider both travel time and sun exposure
+
 import osmnx as ox
 import json
 from geopy.distance import geodesic
 
 def integrate_noaa_data(graph_path, solar_data_path, output_path):
     """
-    Integrate NOAA solar data into the road network graph.
+    Integrate NOAA solar data and travel time into the road network graph.
 
     Args:
         graph_path (str): Path to the road network GraphML file.
@@ -57,10 +59,39 @@ def integrate_noaa_data(graph_path, solar_data_path, output_path):
 
         return closest_exposure
 
-    print("Integrating solar data into the road network...")
+    # Default speed values for different road types (in meters per second)
+    road_speeds = {
+        "motorway": 33.33,       # ~120 km/h
+        "trunk": 27.78,          # ~100 km/h
+        "primary": 22.22,        # ~80 km/h
+        "secondary": 19.44,      # ~70 km/h
+        "tertiary": 16.67,       # ~60 km/h
+        "residential": 13.89,    # ~50 km/h
+        "service": 8.33,         # ~30 km/h
+        "unclassified": 11.11    # ~40 km/h
+    }
+
+    print("Integrating solar and travel time data into the road network...")
     for u, v, key, data in G.edges(data=True, keys=True):
+        # Map solar exposure
         data["solar_exposure"] = map_solar_to_road(u, v, data, solar_points)
-        data["weight"] = float(data.get("length", 1)) / max(float(data.get("solar_exposure", 1)), 0.1)
+
+        # Get road type (highway tag)
+        highway = data.get("highway", "residential")
+        if isinstance(highway, list):  # Handle cases where highway is a list
+            highway = highway[0]
+
+        # Get speed for the road type
+        speed_mps = road_speeds.get(highway, 13.89)  # Default speed for residential roads
+
+        # Calculate travel time
+        travel_time = data.get("length", 1) / speed_mps
+        data["travel_time"] = travel_time
+
+        # Calculate weight combining travel time and solar exposure
+        ALPHA = 0.7  # Weight for travel time
+        BETA = 0.3   # Weight for solar exposure
+        data["weight"] = ALPHA * travel_time + BETA * (1 / max(data["solar_exposure"], 0.1))
 
     print("Saving updated road network graph...")
     ox.save_graphml(G, output_path)

@@ -10,7 +10,7 @@
         {
             "uid": "gov.noaa.ncdc:C00861",
             "mindate": "1750-02-01",
-            "maxdate": "2024-11-16",
+            "maxdate": "2024-11-17",
             "name": "Daily Summaries",
             "datacoverage": 1,
             "id": "GHCND"
@@ -42,7 +42,7 @@
         {
             "uid": "gov.noaa.ncdc:C00708",
             "mindate": "1994-05-20",
-            "maxdate": "2024-11-12",
+            "maxdate": "2024-11-16",
             "name": "Weather Radar (Level III)",
             "datacoverage": 0.95,
             "id": "NEXRAD3"
