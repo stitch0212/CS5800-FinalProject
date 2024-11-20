@@ -1,17 +1,9 @@
 import networkx as nx
 import osmnx as ox
-
-# Load the road network graph from a GraphML file
-G = ox.load_graphml('../data/updated_road_network.graphml')
-
-# Add a custom weight to each edge based on the length and solar exposure
-for u, v, k, data in G.edges(data=True):
-    if 'length' in data:
-        # Calculate weight as length divided by solar exposure (default minimum exposure is 0.1 to avoid division by zero)
-        data['weight'] = data['length'] / max(data.get("solar_exposure", 1), 0.1)
+import heapq
+import time
 
 
-# Greedy algorithm for finding a route between source and target
 def greedy_route(G, source, target):
     """
     Find a route from source to target using a greedy approach.
@@ -24,27 +16,39 @@ def greedy_route(G, source, target):
     Returns:
         list: A list of nodes representing the path from source to target.
     """
-    path = [source]  # Initialize path with the source node
-    current = source  # Start at the source node
+    path = [source]
+    current = source
+    visited = set()  # Track visited nodes
+    start_time = time.time()
 
     while current != target:
-        # Get all neighbors of the current node along with their weights
-        neighbors = [(v, G[current][v]["weight"]) for v in G.neighbors(current)]
+        if current in visited:
+            raise ValueError(f"Cycle detected: Node {current} was revisited.")
+        visited.add(current)
+
+        # Get neighbors with weights, excluding already visited nodes
+        neighbors = []
+        for v in G.neighbors(current):
+            if v not in visited:  # Exclude visited nodes
+                for key, edge_data in G[current][v].items():
+                    if "weight" in edge_data:
+                        neighbors.append((v, float(edge_data["weight"])))
+
+        if not neighbors:
+            raise ValueError(f"No valid neighbors for node {current}. The graph may be disconnected.")
 
         # Sort neighbors by weight (ascending order)
         neighbors.sort(key=lambda x: x[1])
-
-        # Select the neighbor with the smallest weight
         next_node = neighbors[0][0]
 
-        # Add the selected neighbor to the path and move to it
+        print(f"Current node: {current}, Next node: {next_node}, Elapsed time: {time.time() - start_time:.2f}s")
+
         path.append(next_node)
         current = next_node
 
     return path
 
 
-# Dynamic programming approach (Dijkstra's algorithm) for finding the shortest path
 def dp_route(G, source, target):
     """
     Find the shortest path from source to target using dynamic programming (Dijkstra's algorithm).
@@ -57,44 +61,42 @@ def dp_route(G, source, target):
     Returns:
         list: A list of nodes representing the shortest path from source to target.
     """
-    import heapq
-
-    # Initialize distances to all nodes as infinity, except for the source node
+    # Initialize distances and priority queue
     dp = {node: float("inf") for node in G.nodes}
-    dp[source] = 0  # Distance to the source node is 0
-
-    # Priority queue for selecting the next node with the smallest cost
-    pq = [(0, source)]  # (cost, node)
-
-    # Dictionary to keep track of the previous node for path reconstruction
+    dp[source] = 0
+    pq = [(0, source)]  # Priority queue: (cost, node)
     prev = {}
 
     while pq:
-        # Extract the node with the smallest cost from the priority queue
         current_cost, current_node = heapq.heappop(pq)
 
-        # If the target node is reached, exit the loop
+        # Exit if the target is reached
         if current_node == target:
             break
 
-        # Iterate over all neighbors of the current node
+        # Iterate over neighbors
         for neighbor in G.neighbors(current_node):
-            weight = G[current_node][neighbor]["weight"]  # Get the edge weight
-            new_cost = current_cost + weight  # Calculate the new cost to reach the neighbor
+            for key, edge_data in G[current_node][neighbor].items():
+                if "weight" in edge_data:
+                    weight = float(edge_data["weight"])
+                    new_cost = current_cost + weight
 
-            # If the new cost is better than the currently recorded cost
-            if new_cost < dp[neighbor]:
-                dp[neighbor] = new_cost  # Update the cost to reach the neighbor
-                prev[neighbor] = current_node  # Update the previous node for the neighbor
-                heapq.heappush(pq, (new_cost, neighbor))  # Add the neighbor to the priority queue
+                    if new_cost < dp[neighbor]:
+                        dp[neighbor] = new_cost
+                        prev[neighbor] = current_node
+                        heapq.heappush(pq, (new_cost, neighbor))
 
-    # Reconstruct the shortest path from the source to the target
+    # Reconstruct the path
+    if target not in prev:
+        print("No path found between source and target.")
+        return []
+
     path = []
     node = target
     while node in prev:
-        path.append(node)  # Add the current node to the path
-        node = prev[node]  # Move to the previous node
-    path.append(source)  # Add the source node to the path
-    path.reverse()  # Reverse the path to get the correct order from source to target
+        path.append(node)
+        node = prev[node]
+    path.append(source)
+    path.reverse()
 
     return path

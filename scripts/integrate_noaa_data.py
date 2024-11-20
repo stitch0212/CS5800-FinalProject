@@ -60,7 +60,7 @@ def integrate_noaa_data(graph_path, solar_data_path, output_path):
     print("Integrating solar data into the road network...")
     for u, v, key, data in G.edges(data=True, keys=True):
         data["solar_exposure"] = map_solar_to_road(u, v, data, solar_points)
-        data["custom_weight"] = data["length"] / data["solar_exposure"]
+        data["weight"] = float(data.get("length", 1)) / max(float(data.get("solar_exposure", 1)), 0.1)
 
     print("Saving updated road network graph...")
     ox.save_graphml(G, output_path)
