@@ -23,7 +23,7 @@ def test_with_LA_data():
 
     # Fetch solar data and calculate solar exposure
     print("\n=== Calculating Solar Exposure ===")
-    api_key = "YOUR_NREL_API_KEY"  # Replace with your API key
+    api_key = "ATZpaclpEhaBRjGpfZiOBKnkD2eiLTHUBLs0FIIH"
     G_solar = calculate_road_solar_exposure(G, api_key, output_path=solar_weighted_path)
 
     # Test different scenarios
