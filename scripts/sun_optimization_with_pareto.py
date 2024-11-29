@@ -1,10 +1,14 @@
 import networkx as nx
 import math
 import heapq
+import matplotlib.pyplot as plt
+import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
 from typing import Dict, List, Tuple
 from scripts.solar_config import SolarConfig
 from geopy.distance import geodesic
 from collections import defaultdict
+from pathlib import Path
 
 def multi_objective_heuristic(current_node, target_node, G, solar_weight=1.0):
     """Multi-objective heuristic combining travel time and solar potential."""
@@ -13,6 +17,157 @@ def multi_objective_heuristic(current_node, target_node, G, solar_weight=1.0):
     distance = geodesic((lat1, lon1), (lat2, lon2)).kilometers
     solar_estimate = distance * solar_weight
     return distance + solar_estimate
+
+def visualize_pareto_frontier(paths_with_objectives, output_path=None, title="Pareto Frontier"):
+    """
+    Visualize the Pareto frontier for multiple objectives.
+
+    Args:
+        paths_with_objectives (list): List of dictionaries containing path metrics
+        output_path (str): File path to save the visualization (optional)
+        title (str): Title of the visualization plot
+    """
+    print("Visualizing Pareto frontier...")
+
+    try:
+        # Extract metrics for all paths
+        travel_times = [path['travel_time'] for path in paths_with_objectives]
+        solar_gains = [path['solar_gain'] for path in paths_with_objectives]
+        energy_consumed = [path['energy_consumed'] for path in paths_with_objectives]
+
+        # Create 3D scatter plot
+        fig = plt.figure(figsize=(12, 8))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Plot all points
+        scatter = ax.scatter(
+            travel_times,
+            solar_gains,
+            energy_consumed,
+            c='blue',
+            marker='o',
+            label='All Paths'
+        )
+
+        # Identify and plot Pareto optimal points
+        pareto_points = []
+        for i, path in enumerate(paths_with_objectives):
+            dominated = False
+            for other in paths_with_objectives:
+                if (
+                    other['travel_time'] <= path['travel_time'] and
+                    other['solar_gain'] >= path['solar_gain'] and
+                    other['energy_consumed'] <= path['energy_consumed'] and
+                    (
+                        other['travel_time'] < path['travel_time'] or
+                        other['solar_gain'] > path['solar_gain'] or
+                        other['energy_consumed'] < path['energy_consumed']
+                    )
+                ):
+                    dominated = True
+                    break
+            if not dominated:
+                pareto_points.append(i)
+                
+        # Plot Pareto optimal points
+        pareto_travel_times = [travel_times[i] for i in pareto_points]
+        pareto_solar_gains = [solar_gains[i] for i in pareto_points]
+        pareto_energy = [energy_consumed[i] for i in pareto_points]
+
+        ax.scatter(
+            pareto_travel_times,
+            pareto_solar_gains,
+            pareto_energy,
+            c='red',
+            marker='*',
+            s=100,
+            label='Pareto Optimal'
+        )
+
+        # Connect Pareto points with lines
+        if len(pareto_points) > 1:
+            # Sort points by travel time for clean visualization
+            pareto_indices = np.argsort(pareto_travel_times)
+            sorted_times = np.array(pareto_travel_times)[pareto_indices]
+            sorted_solar = np.array(pareto_solar_gains)[pareto_indices]
+            sorted_energy = np.array(pareto_energy)[pareto_indices]
+            
+            ax.plot(
+                sorted_times,
+                sorted_solar,
+                sorted_energy,
+                'r--',
+                alpha=0.5,
+                label='Pareto Frontier'
+            )
+
+        # Labels and title
+        ax.set_xlabel('Travel Time (minutes)')
+        ax.set_ylabel('Solar Gain (kWh)')
+        ax.set_zlabel('Energy Consumed (kWh)')
+        ax.set_title(title)
+
+        # Add legend
+        ax.legend()
+
+        # Adjust the viewing angle for better visualization
+        ax.view_init(elev=20, azim=45)
+
+        # Save if output path provided
+        if output_path:
+            output_dir = Path(output_path).parent
+            output_dir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(output_path, bbox_inches='tight', dpi=300)
+            print(f"Pareto visualization saved at {output_path}")
+
+        # Show plot
+        plt.show()
+
+        # Create 2D projections
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
+
+        # Time vs Solar Gain
+        ax1.scatter(travel_times, solar_gains, c='blue', alpha=0.5, label='All Paths')
+        ax1.scatter([travel_times[i] for i in pareto_points], 
+                   [solar_gains[i] for i in pareto_points],
+                   c='red', marker='*', s=100, label='Pareto Optimal')
+        ax1.set_xlabel('Travel Time (minutes)')
+        ax1.set_ylabel('Solar Gain (kWh)')
+        ax1.set_title('Time vs Solar Gain')
+        ax1.legend()
+
+        # Time vs Energy Consumed
+        ax2.scatter(travel_times, energy_consumed, c='blue', alpha=0.5, label='All Paths')
+        ax2.scatter([travel_times[i] for i in pareto_points],
+                   [energy_consumed[i] for i in pareto_points],
+                   c='red', marker='*', s=100, label='Pareto Optimal')
+        ax2.set_xlabel('Travel Time (minutes)')
+        ax2.set_ylabel('Energy Consumed (kWh)')
+        ax2.set_title('Time vs Energy Consumed')
+        ax2.legend()
+
+        # Solar Gain vs Energy Consumed
+        ax3.scatter(solar_gains, energy_consumed, c='blue', alpha=0.5, label='All Paths')
+        ax3.scatter([solar_gains[i] for i in pareto_points],
+                   [energy_consumed[i] for i in pareto_points],
+                   c='red', marker='*', s=100, label='Pareto Optimal')
+        ax3.set_xlabel('Solar Gain (kWh)')
+        ax3.set_ylabel('Energy Consumed (kWh)')
+        ax3.set_title('Solar Gain vs Energy Consumed')
+        ax3.legend()
+
+        plt.tight_layout()
+
+        # Save 2D projections if output path provided
+        if output_path:
+            base_path = str(output_path).rsplit('.', 1)[0]
+            plt.savefig(f"{base_path}_2d_projections.png", bbox_inches='tight', dpi=300)
+
+        plt.show()
+
+    except Exception as e:
+        print(f"Error during Pareto visualization: {str(e)}")
+        raise
 
 def calculate_pareto_frontier(paths_with_objectives):
     """Calculate the Pareto frontier for multiple objectives."""
@@ -206,6 +361,14 @@ def sun_optimized_route(
             
             heapq.heappush(open_set, (priority, neighbor, new_path, remaining_energy))
     
+    # Visualize Pareto frontier before calculating optimal path
+    pareto_plot_path = f"output/pareto/pareto_frontier_{start}_{end}.png"
+    visualize_pareto_frontier(
+        candidate_paths,
+        output_path=pareto_plot_path,
+        title=f"Pareto Frontier for Route {start} to {end}"
+    )
+    
     # Calculate Pareto-optimal paths
     pareto_optimal = calculate_pareto_frontier(candidate_paths)
     
@@ -225,7 +388,7 @@ def sun_optimized_route(
     print(f"Solar gained: {best_path['solar_gain']:.2f} kWh")
     print(f"Final energy: {best_path['final_energy']:.2f} kWh")
     print(f"Travel time: {best_path['travel_time']:.2f} minutes")
-    
+
     return (
         best_path['path'],
         best_path['solar_gain'],
