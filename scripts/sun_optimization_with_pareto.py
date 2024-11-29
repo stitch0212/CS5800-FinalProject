@@ -1,0 +1,234 @@
+import networkx as nx
+import math
+import heapq
+from typing import Dict, List, Tuple
+from scripts.solar_config import SolarConfig
+from geopy.distance import geodesic
+from collections import defaultdict
+
+def multi_objective_heuristic(current_node, target_node, G, solar_weight=1.0):
+    """Multi-objective heuristic combining travel time and solar potential."""
+    lat1, lon1 = G.nodes[current_node]["y"], G.nodes[current_node]["x"]
+    lat2, lon2 = G.nodes[target_node]["y"], G.nodes[target_node]["x"]
+    distance = geodesic((lat1, lon1), (lat2, lon2)).kilometers
+    solar_estimate = distance * solar_weight
+    return distance + solar_estimate
+
+def calculate_pareto_frontier(paths_with_objectives):
+    """Calculate the Pareto frontier for multiple objectives."""
+    pareto_frontier = []
+    for candidate in paths_with_objectives:
+        dominated = False
+        for other in paths_with_objectives:
+            if (
+                other['travel_time'] <= candidate['travel_time'] and
+                other['solar_gain'] >= candidate['solar_gain'] and
+                other['energy_consumed'] <= candidate['energy_consumed'] and
+                (
+                    other['travel_time'] < candidate['travel_time'] or
+                    other['solar_gain'] > candidate['solar_gain'] or
+                    other['energy_consumed'] < candidate['energy_consumed']
+                )
+            ):
+                dominated = True
+                break
+        if not dominated:
+            pareto_frontier.append(candidate)
+    return pareto_frontier
+
+def sun_optimized_route(
+    G_travel_time: nx.MultiDiGraph,
+    G_solar_exposure: nx.MultiDiGraph,
+    start: int,
+    end: int,
+    initial_energy: float,
+    consumption_rate: float,
+    min_energy_buffer: float = 0,
+    solar_config: SolarConfig = None,
+    k_paths: int = 10
+) -> Tuple[List[int], float, float, float]:
+    """
+    Find optimal route:
+    - Use shortest path if initial energy is sufficient
+    - Use Pareto optimization if energy is limited
+    """
+    if solar_config is None:
+        solar_config = SolarConfig()
+    
+    print(f"\nAnalyzing route from {start} to {end}")
+    print(f"Initial energy: {initial_energy:.2f} kWh")
+    solar_config.print_specs()
+    
+    def evaluate_path(path):
+        """Calculate metrics for a given path."""
+        distance = sum(
+            G_travel_time[u][v][0]["length"] for u, v in zip(path[:-1], path[1:])
+        ) / 1000
+        
+        energy_consumed = distance * consumption_rate
+        solar_gained = sum(
+            solar_config.calculate_solar_gain(
+                time_minutes=G_travel_time[u][v][0]['travel_time'],
+                GHI=G_solar_exposure[u][v][0]['solar_exposure']
+            )
+            for u, v in zip(path[:-1], path[1:])
+        )
+        
+        final_energy = initial_energy - energy_consumed + solar_gained
+        
+        travel_time = sum(
+            float(G_travel_time[u][v][0]['travel_time'])
+            for u, v in zip(path[:-1], path[1:])
+        )
+        
+        avg_solar = sum(
+            float(G_solar_exposure[u][v][0]['solar_exposure'])
+            for u, v in zip(path[:-1], path[1:])
+        ) / len(path[:-1])
+        
+        return {
+            'path': path,
+            'distance': distance,
+            'energy_consumed': energy_consumed,
+            'solar_gain': solar_gained,
+            'final_energy': final_energy,
+            'travel_time': travel_time,
+            'avg_solar': avg_solar
+        }
+    
+    # First try shortest path
+    shortest_path = nx.shortest_path(G_travel_time, source=start, target=end, weight="travel_time")
+    shortest_metrics = evaluate_path(shortest_path)
+    
+    print(f"\nShortest path analysis:")
+    print(f"Distance: {shortest_metrics['distance']:.2f} km")
+    print(f"Energy consumed: {shortest_metrics['energy_consumed']:.2f} kWh")
+    print(f"Solar gained: {shortest_metrics['solar_gain']:.2f} kWh")
+    print(f"Final energy: {shortest_metrics['final_energy']:.2f} kWh")
+    print(f"Travel time: {shortest_metrics['travel_time']:.2f} minutes")
+
+    # Check if shortest path has sufficient energy
+    if shortest_metrics['final_energy'] >= min_energy_buffer:
+        print("\nShortest path has sufficient energy - using it")
+        return (
+            shortest_metrics['path'],
+            shortest_metrics['solar_gain'],
+            shortest_metrics['distance'],
+            shortest_metrics['final_energy']
+        )
+
+    print("\nInsufficient energy for shortest path - searching for solar-optimized route...")
+    
+    # Initialize containers for paths
+    candidate_paths = [shortest_metrics]
+    
+    # Convert MultiDiGraph to DiGraph with modified weights
+    G_solar = nx.DiGraph()
+    
+    max_solar = max(
+        float(G_solar_exposure[u][v][0]['solar_exposure'])
+        for u, v in G_solar_exposure.edges()
+    )
+    
+    energy_per_km = consumption_rate
+    
+    # Add edges with modified weights
+    for u, v, data in G_travel_time.edges(data=True):
+        if not G_solar.has_edge(u, v):
+            time_weight = data['travel_time']
+            distance = data['length'] / 1000
+            
+            try:
+                solar_exposure = float(G_solar_exposure[u][v][0]['solar_exposure'])
+                solar_factor = solar_exposure / max_solar
+                
+                energy_cost = distance * energy_per_km
+                potential_gain = solar_config.calculate_solar_gain(
+                    time_minutes=time_weight,
+                    GHI=solar_exposure
+                )
+                energy_balance = energy_cost - potential_gain
+                
+                # Adjust weights based on energy state
+                if initial_energy < shortest_metrics['energy_consumed']:
+                    # Critical energy state - prioritize solar gain
+                    TIME_WEIGHT = 0.2
+                    SOLAR_WEIGHT = 0.8
+                else:
+                    # Normal energy state
+                    TIME_WEIGHT = 0.3
+                    SOLAR_WEIGHT = 0.7
+                
+                if energy_balance > 0:
+                    energy_factor = 1 + energy_balance
+                else:
+                    energy_factor = 1 / (1 - energy_balance)
+                    
+                weight = (
+                    TIME_WEIGHT * time_weight + 
+                    SOLAR_WEIGHT * (time_weight * energy_factor * (1 - solar_factor))
+                )
+                
+            except (ValueError, TypeError):
+                weight = time_weight * 2
+            
+            G_solar.add_edge(u, v, 
+                           weight=weight,
+                           travel_time=time_weight,
+                           length=data['length'])
+    
+    # Find k alternative paths using A* with multi-objective heuristic
+    open_set = [(0, start, [start], initial_energy)]
+    visited = set()
+    
+    while open_set and len(candidate_paths) < k_paths:
+        _, current, path, remaining_energy = heapq.heappop(open_set)
+        
+        if current == end:
+            metrics = evaluate_path(path)
+            if metrics['final_energy'] >= min_energy_buffer:
+                candidate_paths.append(metrics)
+            continue
+            
+        if current in visited:
+            continue
+        visited.add(current)
+        
+        for neighbor in G_solar.neighbors(current):
+            if neighbor in visited:
+                continue
+                
+            edge_data = G_solar.get_edge_data(current, neighbor)
+            new_path = path + [neighbor]
+            
+            heuristic = multi_objective_heuristic(neighbor, end, G_travel_time)
+            priority = edge_data['weight'] + heuristic
+            
+            heapq.heappush(open_set, (priority, neighbor, new_path, remaining_energy))
+    
+    # Calculate Pareto-optimal paths
+    pareto_optimal = calculate_pareto_frontier(candidate_paths)
+    
+    if not pareto_optimal:
+        print("\nNo viable paths found")
+        return None, 0.0, 0.0, initial_energy
+    
+    # Choose best path based on combined criteria
+    best_path = max(
+        pareto_optimal,
+        key=lambda x: (x['final_energy'] / x['distance']) * (1 + x['avg_solar'] / 1000)
+    )
+    
+    print(f"\nSelected solar-optimized path:")
+    print(f"Distance: {best_path['distance']:.2f} km")
+    print(f"Energy consumed: {best_path['energy_consumed']:.2f} kWh")
+    print(f"Solar gained: {best_path['solar_gain']:.2f} kWh")
+    print(f"Final energy: {best_path['final_energy']:.2f} kWh")
+    print(f"Travel time: {best_path['travel_time']:.2f} minutes")
+    
+    return (
+        best_path['path'],
+        best_path['solar_gain'],
+        best_path['distance'],
+        best_path['final_energy']
+    )

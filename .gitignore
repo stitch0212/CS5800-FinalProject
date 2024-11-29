@@ -166,3 +166,5 @@ data/
 
 # cache folder
 cache/
+
+.DS_Store
