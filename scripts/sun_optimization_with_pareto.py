@@ -68,7 +68,7 @@ def visualize_pareto_frontier(paths_with_objectives, output_path=None, title="Pa
                     break
             if not dominated:
                 pareto_points.append(i)
-                
+
         # Plot Pareto optimal points
         pareto_travel_times = [travel_times[i] for i in pareto_points]
         pareto_solar_gains = [solar_gains[i] for i in pareto_points]
@@ -120,9 +120,6 @@ def visualize_pareto_frontier(paths_with_objectives, output_path=None, title="Pa
             plt.savefig(output_path, bbox_inches='tight', dpi=300)
             print(f"Pareto visualization saved at {output_path}")
 
-        # Show plot
-        plt.show()
-
         # Create 2D projections
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
 
@@ -162,8 +159,6 @@ def visualize_pareto_frontier(paths_with_objectives, output_path=None, title="Pa
         if output_path:
             base_path = str(output_path).rsplit('.', 1)[0]
             plt.savefig(f"{base_path}_2d_projections.png", bbox_inches='tight', dpi=300)
-
-        plt.show()
 
     except Exception as e:
         print(f"Error during Pareto visualization: {str(e)}")
@@ -381,6 +376,10 @@ def sun_optimized_route(
         pareto_optimal,
         key=lambda x: (x['final_energy'] / x['distance']) * (1 + x['avg_solar'] / 1000)
     )
+
+    if best_path['final_energy'] < min_energy_buffer:
+        print("\nBest path does not meet minimum energy requirements")
+        return None, 0.0, 0.0, initial_energy
     
     print(f"\nSelected solar-optimized path:")
     print(f"Distance: {best_path['distance']:.2f} km")

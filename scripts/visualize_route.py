@@ -88,9 +88,6 @@ def visualize_route(G, route, output_path=None, title="Route Visualization"):
             fig.savefig(output_path, bbox_inches="tight", dpi=300)
             print(f"Visualization saved at {output_path}")
 
-        # Show the plot
-        plt.show()
-
     except Exception as e:
         print(f"Error during visualization: {str(e)}")
         raise
